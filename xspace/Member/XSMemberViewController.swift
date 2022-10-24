@@ -32,28 +32,34 @@ class XSMemberViewController: UIViewController, WKScriptMessageHandler {
     deinit {
         self.webView.configuration.userContentController.removeScriptMessageHandler(forName: "gotoPay")
         print("XSMemberViewController 释放!!!")
+        SKPaymentQueue.default().remove(self)//移除监听
+
     }
     
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         if message.name == "gotoPay" {
+            let param = message.body
+            self.selectParam = param as! NSDictionary
             print(message.body)
 //            showHub()
             if currentUser == nil {
                 oneKeyLogin.getPhoneNumber(currentVC: self)
                 return
             }else {
-                
+                buy(string: self.selectParam["config"] as! String)
             }
         }
     }
 
     var order: ProductOrder? = nil
     var webView = WKWebView()
+    var selectParam = NSDictionary()
+    
     override func viewDidLoad() {
         super.viewDidLoad()
         commonBackground()
         
-        
+        SKPaymentQueue.default().add(self)//添加监听
         let config = WKWebViewConfiguration()
         config.userContentController = WKUserContentController()
         config.userContentController.add(self, name: "gotoPay")
@@ -92,6 +98,7 @@ class XSMemberViewController: UIViewController, WKScriptMessageHandler {
     
     //根据内购种类加参数
     func buy(string:String){
+        showHub()
         //判断是否允许内购
         if SKPaymentQueue.canMakePayments() {
             let nsset:NSSet = NSSet.init(array: [string])
@@ -100,6 +107,7 @@ class XSMemberViewController: UIViewController, WKScriptMessageHandler {
             request.start()
         }else{
             print("can not canMakePayments")
+            hubHide()
         }
     }
     
@@ -107,6 +115,37 @@ class XSMemberViewController: UIViewController, WKScriptMessageHandler {
         
     }
     
+    //上传成交记录
+    func setCreateOrderAction() {
+        
+        
+        let param = ["driveType": "0" as AnyObject,
+                     "isGive": self.selectParam["isGive"] as AnyObject,
+                     "money": self.selectParam["money"] as AnyObject,
+                     "payType": self.selectParam["payType"] as AnyObject,
+                     "status": "1" as AnyObject,
+                     "userCode": currentUser?.userCode as AnyObject,
+                     "userId": currentUser?.id as AnyObject,
+                     "userPhone": currentUser?.phone as AnyObject,
+                     "udid": IDFA as AnyObject]
+        
+        self.showHub()
+        requestManger.request(url: api.createOrder , params: param) { [self] success, result in
+            hubHide()
+            guard success else {
+                showMessage(message: result.message)
+                return
+            }
+   
+            print("上传成功")
+            //跳转首页
+//            let appDelegate = (UIApplication.shared.delegate)!
+//            let vc2 = UNavigationController(rootViewController: XSMainViewController())
+//            appDelegate.window!?.rootViewController = vc2
+        }
+        
+
+    }
 }
 
 extension XSMemberViewController : WKNavigationDelegate {
@@ -183,10 +222,12 @@ extension XSMemberViewController: SKPaymentTransactionObserver {
                 print("商品添加进列表")
                 break
             case .restored:
+                hubHide()
                 showMessage(message: "已经购买过该商品")
                 SKPaymentQueue.default().finishTransaction(tran)
                 break
             case .failed, .deferred:
+                hubHide()
                 showMessage(message: "支付失败")
                 SKPaymentQueue.default().finishTransaction(tran)
                 break
@@ -243,6 +284,7 @@ extension XSMemberViewController: SKPaymentTransactionObserver {
     
     //验证凭据，获取到苹果返回的交易凭据
     func verifyTransactionResult(transaction:SKPaymentTransaction){
+        showHub()
         //从沙盒中获取到购买凭据
         let recepitUrl = Bundle.main.appStoreReceiptURL
         let recriptData = NSData.init(contentsOf: recepitUrl!)
@@ -260,9 +302,13 @@ extension XSMemberViewController: SKPaymentTransactionObserver {
             print(dict)
             SKPaymentQueue.default().finishTransaction(transaction)
             let status = dict["status"] as! Int
+            
             switch(status){
             case 0:
+//                hubHide()
+                self.hubHide()
                 // MARK: - 需要通知服务端
+                self.setCreateOrderAction()
 //                self.resultBlock("购买成功")
 //                UMAnalyticsSwift.event(eventId: "1003") 1个月
 //                UMAnalyticsSwift.event(eventId: "1004") 3个月
@@ -273,6 +319,8 @@ extension XSMemberViewController: SKPaymentTransactionObserver {
                 self.verifyTransactionResult(transaction: transaction)
                 break
             default:
+                
+                self.hubHide()
 //                self.resultBlock("验证失败")
                 break
             }
@@ -292,6 +340,7 @@ extension XSMemberViewController: SKProductsRequestDelegate {
     func productsRequest(_ request: SKProductsRequest,didReceive response: SKProductsResponse) {
         if response.products.count == 0 {
             print("没有商品")
+            showMessage(message: "没有该商品")
             return
         }
         for product in response.products {
@@ -302,6 +351,7 @@ extension XSMemberViewController: SKProductsRequestDelegate {
     
     func request(_ request: SKRequest,didFailWithError error: Error) {
         print("------------------错误-----------------\(error)")
+        hubHide()
         showMessage(message: "支付出现异常, 无法支付")
     }
     
